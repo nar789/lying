@@ -70,6 +70,7 @@ class CloseBody(BaseModel):
 def make_pc() -> RTCPeerConnection:
     config = RTCConfiguration(
         iceServers=[
+            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
             RTCIceServer(
                 urls=[
                     "turn:1.234.5.55:3478?transport=udp",
@@ -77,7 +78,7 @@ def make_pc() -> RTCPeerConnection:
                 ],
                 username="black",
                 credential="323285",
-            )
+            ),
         ]
     )
     return RTCPeerConnection(configuration=config)

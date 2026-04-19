@@ -122,12 +122,21 @@
 
         pc = new RTCPeerConnection({
           iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-        {
-              urls: "turn:1.234.5.55:3478",
-              username: "black",
-              credential: "323285",
-        }
+               // ✅ STUN (공인 IP 확보)
+              {
+                urls: ["stun:stun.l.google.com:19302"]
+              },
+
+              // ✅ TURN (UDP + TCP fallback)
+              {
+                urls: [
+                  "turn:1.234.5.55:3478?transport=udp",
+                  "turn:1.234.5.55:3478?transport=tcp"
+                ],
+                username: "black",
+                credential: "323285"
+              },
+
           ],
           //iceTransportPolicy: 'relay' 
         });

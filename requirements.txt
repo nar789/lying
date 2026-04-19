@@ -1,8 +1,6 @@
-aiortc==1.14.0
-av==16.1.0
-fastapi==0.136.0
-numpy==2.4.4
-opencv_contrib_python==4.13.0.92
-opencv_python==4.13.0.92
-pydantic==2.13.2
-ultralytics==8.4.37
+aiortc
+fastapi
+numpy
+opencv_python
+pydantic
+ultralytics
