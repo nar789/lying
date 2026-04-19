@@ -1,0 +1,241 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>넘어짐데모</title>
+  </head>
+  <body>
+    <h2>넘어짐데모1</h2>
+    <button id="startBtn" style="width: 100px; height: 100px;
+    font-size: xx-large;">Start</button>
+    <button id="stopBtn" style="width: 100px; height: 100px;
+    font-size: xx-large;">Stop</button>
+    <div style="display: flex; gap: 16px">
+      <video
+        id="localVideo"
+        autoplay
+        playsinline
+        muted
+        style="width: 480px; border: 1px solid #ccc"
+      ></video>
+      <div>
+        <div>Remote</div>
+        <video
+          id="remoteVideo"
+          autoplay
+          playsinline
+          style="width: 480px; border: 1px solid #ccc"
+        ></video>
+      </div>
+    </div>
+
+    <script>
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const localVideo = document.getElementById("localVideo");
+      const remoteVideo = document.getElementById("remoteVideo");
+
+      let pc = null;
+      let localStream = null;
+      let sessionId = null;
+
+      async function stopWebRTC() {
+
+        try {
+          // 로컬 카메라 중지
+          if (localStream) {
+            localStream.getTracks().forEach((track) => {
+              track.stop();
+            });
+            localStream = null;
+          }
+
+          // local video 초기화
+          if (localVideo.srcObject) {
+            localVideo.srcObject = null;
+          }
+
+          // remote video 초기화
+          if (remoteVideo.srcObject) {
+            const remoteStream = remoteVideo.srcObject;
+            if (remoteStream.getTracks) {
+              remoteStream.getTracks().forEach((track) => track.stop());
+            }
+            remoteVideo.srcObject = null;
+          }
+
+          // PeerConnection 종료
+          if (pc) {
+            pc.ontrack = null;
+            pc.onicecandidate = null;
+            pc.oniceconnectionstatechange = null;
+            pc.onconnectionstatechange = null;
+
+            pc.getSenders().forEach((sender) => {
+              if (sender.track) {
+                sender.track.stop();
+              }
+            });
+
+            pc.close();
+            pc = null;
+          }
+
+          if (sessionId) {
+            try {
+              await fetch("/close", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionId }),
+              });
+            } catch (e) {
+              console.warn("close signaling failed:", e);
+            }
+          }
+
+          sessionId = null;
+          window.pc = null;
+          console.log("WebRTC stopped");
+        } catch(err) {
+          console.error("stopWebRTC error:", err);
+        }
+      }
+
+      startBtn.onclick = async () => {
+        // 이미 실행 중이면 먼저 정리
+        if (pc || localStream) {
+          await stopWebRTC();
+        }
+
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: {
+              ideal: "environment"
+            },
+            width: {ideal:1280},
+            height: {ideal: 720}
+          },
+          audio: false,
+        });
+
+        localVideo.srcObject = localStream;
+
+        pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+        {
+              urls: "turn:1.234.5.55:3478",
+              username: "black",
+              credential: "323285",
+        }
+          ],
+          //iceTransportPolicy: 'relay' 
+        });
+
+        localStream
+          .getTracks()
+          .forEach((track) => pc.addTrack(track, localStream));
+
+        // 서버가 보내는 가공 비디오 받기
+        pc.ontrack = (event) => {
+          console.log("remote track received", event.track.kind);
+          if (event.streams && event.streams[0]) {
+            remoteVideo.srcObject = event.streams[0];
+          } else {
+            const inbound = new MediaStream([event.track]);
+            remoteVideo.srcObject = inbound;
+          }
+        };
+
+        pc.onicecandidate = async (e) => {
+          if (e.candidate) {
+            console.log("candidate found at ",
+            e.candidate.type,
+            e.candidate.protocol
+          );
+
+          if (!sessionId) return;
+
+          try {
+              await fetch("/candidate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  sessionId,
+                  candidate: {
+                    candidate: e.candidate.candidate,
+                    sdpMid: e.candidate.sdpMid,
+                    sdpMLineIndex: e.candidate.sdpMLineIndex
+                  }
+                })
+              });
+          } catch (err) {
+            console.error("candidate send error:", err);
+          }
+
+
+          // signaling 전송
+        } else {
+          console.log("ICE gathering complete at");
+
+           if (!sessionId) return;
+
+            // end-of-candidates 알림
+            try {
+              await fetch("/candidate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  sessionId,
+                  candidate: null
+                })
+              });
+            } catch (err) {
+              console.error("end-of-candidates send error:", err);
+            }
+        }
+      };
+
+        pc.oniceconnectionstatechange = () => {
+          console.log("ICE state:", pc.iceConnectionState);
+        };
+
+        pc.onconnectionstatechange = () => {
+          console.log("PC state:", pc.connectionState);
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const response = await fetch("/offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sdp: pc.localDescription.sdp,
+            type: pc.localDescription.type,
+          }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`/offer failed: ${response.status}`);
+        }
+
+        const answer = await response.json();
+
+        sessionId = answer.sessionId;
+
+        await pc.setRemoteDescription({
+            type: answer.type,
+            sdp: answer.sdp
+          });
+
+        window.pc = pc;
+        console.log("WebRTC started, sessionId =", sessionId);
+      };
+
+      stopBtn.onclick = async () => {
+        await stopWebRTC();
+      };
+    </script>
+  </body>
+</html>
