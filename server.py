@@ -122,10 +122,8 @@ async def offer(body: OfferBody):
         if track.kind == "video":
             # 들어오는 원본 비디오를 기반으로
             # 가공 비디오 트랙 생성 후 다시 송출
-
-            # annotated_track = AnnotatedVideoTrack(track)
-            annotated_track = LyingVideoTrack(track)
-            pc.addTrack(annotated_track)
+            # annotated_track = LyingVideoTrack(track)
+            pc.addTrack(track)
             logging.info("%s annotated track added", pc_id)
 
         @track.on("ended")
